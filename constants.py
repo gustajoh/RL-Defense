@@ -3,6 +3,7 @@ VM_USERNAME = 'gns3'
 VM_PASSWORD = 'gns3'
 PROJECT_ID = '3317c6f6-5a8f-4a89-a09c-b59cae565e0d'
 
+# http://192.168.33.7:3080/v2/projects/3317c6f6-5a8f-4a89-a09c-b59cae565e0d/nodes view nodes in case ids change TODO: script for automatically extracting ids
 DOCKER_NODES = {
     "AdminPC": "27b7647b6071",
     "COZYBEAR": "bbfc0e11fd42",

@@ -17,11 +17,12 @@ def execute_command(node_id, command):
         _, stdout, stderr = ssh_client.exec_command(exec_command)
 
         output = stdout.read().decode('utf-8')
-        print("output:", output)
+        #print("output:", output)
 
         error = stderr.read().decode('utf-8')
         if error:
             print("Error output:\n", error)
+        return output
 
     except paramiko.AuthenticationException:
         print("Authentication failed, please verify your credentials.")

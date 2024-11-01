@@ -3,6 +3,7 @@ import gym
 from gym import spaces
 import numpy as np
 from constants import *
+import re
 
 
 class NetworkDefenseEnv(gym.Env):
@@ -56,11 +57,16 @@ class NetworkDefenseEnv(gym.Env):
             elif specific_action == 2:
                 self.migrate_node(node)
 
-        observation = 'not implemented'
+        observation = {
+            "node_status": self.retrieve_node_status(),
+            "snort_alerts" : self.retrieve_snort_logs(),
+            "firewall_logs": self.retrieve_firewall_logs()
+        }
         reward = 'not implemented'
         done = 'not implemented'
 
         return observation, reward, done, {}
+    
 # Detection
 
     # Adds a random snort rule from constants.py and restarts snort to apply rule
@@ -128,3 +134,56 @@ class NetworkDefenseEnv(gym.Env):
     def restart_node(self, node_id):
         restart_node(node_id)
         print(f"Node {node_id} restarted")
+
+# Observation methods
+
+    def retrieve_snort_logs(self):
+        command = "cat /var/log/snort/snort_logs.log"
+        node = constants.DOCKER_NODES["IDPS"]
+        output_data = execute_command(node, command)
+
+        print('Parsing started...')
+        # Pattern for regular snort log output
+        alert_pattern = re.compile(
+            r'\[\*\*\] \[(?P<sid>\d+):(?P<gid>\d+):(?P<rev>\d+)\] (?P<alert_msg>[^\[]+) \[\*\*\]\s*'
+            r'\[Classification: (?P<classification>[^\]]+)\] \[Priority: (?P<priority>\d+)\]\s*'
+            r'(?P<timestamp>\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d+)\s+(?P<src_ip>\d+\.\d+\.\d+\.\d+):?(?P<src_port>\d+)?\s*->\s*(?P<dst_ip>\d+\.\d+\.\d+\.\d+):?(?P<dst_port>\d+)?\s*'
+            r'(?P<protocol>\w+)\s+TTL:(?P<ttl>\d+)\s+TOS:0x(?P<tos>[A-Fa-f0-9]+)\s+ID:(?P<id>\d+)\s+IpLen:(?P<ip_len>\d+)\s+DgmLen:(?P<dgm_len>\d+)',
+            re.MULTILINE
+        )
+
+        alerts = []
+    
+        # Try matching with regex
+        for match in alert_pattern.finditer(output_data):
+            alert = match.groupdict()
+            alerts.append(alert)
+        return alerts
+
+    def retrieve_node_status(self):
+        URL = ('http://192.168.33.7:3080/v2/projects/'
+           f'{constants.PROJECT_ID}/nodes')
+     
+        response = requests.get( URL, headers={'Content-Type': 'application/x-www-form-urlencoded', })
+        if response.status_code == 200:
+            data = response.json()
+        else:
+            print("Failed to fetch data. Status code:", response.status_code)
+
+        node_status = {}
+        nodes_on = 0
+        nodes_off = 0
+        for node in data:
+            node_status[node['name']] = node['status']
+            if node['status'] == 'started':
+                nodes_on += 1
+            else:
+                nodes_off += 1
+
+        node_status['operable'] = nodes_on
+        node_status['inoperable'] = nodes_off
+
+        return node_status
+    
+    def retrieve_firewall_logs(self):
+        "not implemented"
