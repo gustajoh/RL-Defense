@@ -1,0 +1,47 @@
+FROM ubuntu:20.04
+
+# Set environment variable to avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install necessary packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    wget \
+    vim \
+    git \
+    net-tools \
+    nmap \
+    telnet \
+    openssh-server \
+    openssh-client \
+    iproute2 \
+    ifupdown \
+    iputils-ping \
+    apache2 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Configure SSH
+RUN mkdir /var/run/sshd && \
+    echo 'root:root' | chpasswd && \
+    sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config && \
+    sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
+
+# Add non-admin user here
+RUN useradd -ms /bin/bash james && \
+    echo 'user:pass' | chpasswd
+
+# Create directories for Apache, Samba
+RUN mkdir -p /var/www/html/reposerver
+
+# Expose relevant ports for HTTP, SSH, and Telnet
+EXPOSE 80
+EXPOSE 22
+EXPOSE 23
+
+# Set the working directory
+WORKDIR /root
+
+# Start services on container startup
+CMD ["sh", "-c", "service apache2 start; service smbd start; service ssh start; exec sh"]

@@ -62,7 +62,7 @@ class NetworkDefenseEnv(gym.Env):
             "snort_alerts" : self.retrieve_snort_logs(),
             "firewall_logs": self.retrieve_firewall_logs()
         }
-        reward = 'not implemented'
+        reward = 'not implemented' #base reward - (sum inoperable nodes) - (sum critical alerts) - (sum critical logs) - (sum pingtest)
         done = 'not implemented'
 
         return observation, reward, done, {}

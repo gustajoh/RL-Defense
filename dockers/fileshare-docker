@@ -1,0 +1,58 @@
+# Base image
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic utilities and services
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    wget \
+    vim \
+    git \
+    net-tools \
+    nmap \
+    telnet \
+    openssh-server \
+    openssh-client \
+    iproute2 \
+    ifupdown \
+    iputils-ping \
+    samba \
+    rsync \
+    tcpdump && \
+    rm -rf /var/lib/apt/lists/*
+
+# Configure SSH
+RUN mkdir /var/run/sshd && \
+    echo 'root:root' | chpasswd && \
+    sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config && \
+    sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
+
+# Add a non-root user here
+RUN useradd -ms /bin/bash james && \
+    echo 'user:pass' | chpasswd
+
+# Create and configure Samba share
+RUN mkdir -p /srv/samba/share && \
+    chmod -R 0777 /srv/samba/share && \
+    echo "[Fileshare]" >> /etc/samba/smb.conf && \
+    echo "   path = /srv/samba/share" >> /etc/samba/smb.conf && \
+    echo "   browsable = yes" >> /etc/samba/smb.conf && \
+    echo "   read only = no" >> /etc/samba/smb.conf && \
+    echo "   guest ok = yes"
+
+# Add dummy files
+RUN echo "username=admin\npassword=adminpass" > /srv/samba/share/credentials.txt && \
+    echo "This is a confidential report" > /srv/samba/share/financial_report.txt && \
+    chmod 644 /srv/samba/share/*
+
+# Expose ports for services
+EXPOSE 22 445
+
+# Set working directory
+WORKDIR /root
+
+# Start necessary services on container startup
+CMD ["sh", "-c", "service ssh start; service smbd start; exec sh"]
