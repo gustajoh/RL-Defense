@@ -1,3 +1,4 @@
+# Use the latest Ubuntu as the base image
 FROM ubuntu:20.04
 
 # Set environment variable to avoid interactive prompts during package installation
@@ -18,7 +19,8 @@ RUN apt-get update && apt-get install -y \
     iproute2 \
     ifupdown \
     iputils-ping \
-    apache2 && \
+    apache2 \
+    apache2-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # Configure SSH
@@ -28,15 +30,33 @@ RUN mkdir /var/run/sshd && \
     sed -i 's/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config && \
     sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config
 
-# Add non-admin user here
-RUN useradd -ms /bin/bash james && \
-    echo 'user:pass' | chpasswd
+# Add a standard user (e.g., james) with a password
+RUN useradd -ms /bin/bash user5 && \
+    echo 'user5:x0sTsQwj4' | chpasswd
 
-# Create directories for Apache, Samba
-RUN mkdir -p /var/www/html/reposerver
+# Create directories for Apache
+RUN mkdir -p /var/www/html/reposerver && \
+    echo "Welcome to the Repo Server!" > /var/www/html/reposerver/index.html
 
-# Expose relevant ports for HTTP, SSH, and Telnet
+# Default script
+RUN echo '#!/bin/bash' > /var/www/html/reposerver/install.sh && \
+    echo 'mkdir -p /opt/software/config' >> /var/www/html/reposerver/install.sh && \
+    echo 'echo "Successful installation" > /opt/software/config/status.txt' >> /var/www/html/reposerver/install.sh && \
+    chmod +x /var/www/html/reposerver/install.sh
+
+# Configure Apache Authentication
+RUN htpasswd -cb /etc/apache2/.htpasswd user5 x0sTsQwj4 && \
+    echo '<Directory "/var/www/html/reposerver">' > /etc/apache2/sites-available/000-default.conf && \
+    echo '    AuthType Basic' >> /etc/apache2/sites-available/000-default.conf && \
+    echo '    AuthName "Restricted Area"' >> /etc/apache2/sites-available/000-default.conf && \
+    echo '    AuthUserFile /etc/apache2/.htpasswd' >> /etc/apache2/sites-available/000-default.conf && \
+    echo '    Require valid-user' >> /etc/apache2/sites-available/000-default.conf && \
+    echo '</Directory>' >> /etc/apache2/sites-available/000-default.conf && \
+    echo 'ServerName localhost' >> /etc/apache2/sites-available/000-default.conf
+
+# Expose relevant ports for HTTP, SMB, SSH, and Telnet
 EXPOSE 80
+EXPOSE 445
 EXPOSE 22
 EXPOSE 23
 
@@ -44,4 +64,4 @@ EXPOSE 23
 WORKDIR /root
 
 # Start services on container startup
-CMD ["sh", "-c", "service apache2 start; service smbd start; service ssh start; exec sh"]
+CMD ["sh", "-c", "service apache2 start; service ssh start; exec sh"]

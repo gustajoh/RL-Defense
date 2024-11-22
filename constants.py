@@ -30,3 +30,12 @@ SHOREWALL_RULES = [
     "DROP     net:192.168.2.0/24    all",
     "ACCEPT   net      fw     icmp"
 ]
+
+# Scans with increasing levels of aggressiveness
+NMAP_SCANS = [
+    "nmap -sn -oX -",
+    "nmap -sS -oX -",
+    "nmap -sS -sV -O -oX -",
+    "nmap -A -oX -",
+    "nmap -T5 -oX -"
+]
