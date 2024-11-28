@@ -10,57 +10,83 @@ class NetworkAttackEnv(gym.Env):
     def __init__(self):
         types = 3
         commands = 8
-        intensity = 5
+        intensity = 5        
+        target = 4
+
         self.observation_space = spaces.Dict({
             "known_credentials": spaces.MultiBinary(4),
             "compromised_nodes": spaces.MultiBinary(10),  
-            "found_hosts": spaces.MultiBinary(4),
-            "available_tools": spaces.MultiBinary(5)
+            "known_hosts": spaces.MultiBinary(4),
+            "known_tools": spaces.MultiBinary(6)
         })
 
-        self.action_space = spaces.MultiDiscrete([types, commands, intensity])
-        stolen_info = False
+        self.action_space = spaces.MultiDiscrete([types, commands, intensity, target])
+        self.stolen_info = False
+        self.credential_store = {
+            0: {"user": None, "password": None},
+            1: {"user": None, "password": None},
+            2: {"user": None, "password": None},
+            3: {"user": None, "password": None}, 
+        }
+
+        self.current_observation = {
+            "known_credentials": np.zeros(4, dtype=np.int32),
+            "compromised_nodes": np.zeros(4, dtype=np.int32),
+            "known_hosts": np.zeros(4, dtype=np.int32),
+            "known_tools": np.zeros(5, dtype=np.int32)       
+        }
         
     def step(self, action):
         response_type = action[0]
         specific_action = action[1]
-        subnet = ''
-        intensity = ''
-        ip = ''
+        intensity = action[2]
+        target = action[3]
+        subnet = '192.42.0.0'
+
+        found_hosts = None
+        found_credentials = None
+        compromised_nodes = None
 
         # Exploraiton
         if response_type == 0:
             if specific_action == 0:
-                self.scan_range(self, subnet, intensity)
+                result = self.scan_range(subnet, intensity)
+                found_hosts = parse_scan_output(result)
             elif specific_action == 1:
-                self.traffic_scan(self)
+                self.traffic_scan()
             elif specific_action == 2:
-                self.connect_to_host(self, ip)
+                self.connect_to_host(target)
 
         # Exploitation
         elif response_type == 1:
             if specific_action == 0:
-                self.brute_force(self, ip)
+               result = self.brute_force(target)
+               found_credentials = self.parse_medusa_output(result)
+               
             elif specific_action == 1:
-                self.inject_script(self)
+                self.inject_script(target)
             elif specific_action == 2:
-                self.read_info(self)
+                self.read_info(target)
 
         # Obfuscation
         elif response_type == 2:
             if specific_action == 0:
-                self.remove_user(self, 'chloe')
+                self.remove_user('chloe', target)
 
-        observation = { }
-        reward = 'not implemented'
+        self.current_observation["known_credentials"] = self.update_known_credentials(found_credentials)
+        self.current_observation["compromised_nodes"] = self.update_compromised_nodes(compromised_nodes)
+        self.current_observation["known_hosts"] = self.update_found_hosts(found_hosts)
+        self.current_observation["known_tools"] = self.update_tools()
+
+        reward = self.calculate_reward(self.current_observation)
         done = self.stolen_info
 
-        return observation, reward, done, {}
+        return self.current_observation.copy(), reward, done
     
 # Exploration
     def scan_range(self, subnet, intensity):
-        command = constants.NMAP_SCANS[intensity] + f' ${subnet}-10'
-        print(f"Port scanning with intensity ${intensity}")
+        command = constants.NMAP_SCANS[intensity] + f' {subnet}-10'
+        print(f"Port scanning with intensity {intensity}")
         result = interact(command)
         return result
 
@@ -70,12 +96,13 @@ class NetworkAttackEnv(gym.Env):
         return result
     
     def connect_to_host(self, host):
-        command = f"ssh {self.known_credentials[host]['user']}@{host}"
+        command = f"ssh {self.credential_store[host]['user']}@{host}"
         result = interact(command)
 
 # Exploitation
     def brute_force(self, target):
-        command = f'medusa -h {target} -U /usr.txt -P /pass.txt -M ssh | grep FOUND'
+        command = f'medusa -h {constants.ADDRESS_LIST[target]} -U /usr.txt -P /pass.txt -M ssh | grep FOUND'
+        print("Brute Forcing", constants.ADDRESS_LIST[target])
         result = interact(command)
         return result
 
@@ -117,6 +144,81 @@ class NetworkAttackEnv(gym.Env):
 # Observation methods
 
 # Helper methods
+    def update_known_credentials(self, credentials):
+        obs = self.current_observation["known_credentials"].copy()
+
+        if credentials is not None:
+            for host in credentials:
+                obs[host] = 1 if host == 1 else 0
+
+        return obs
+
+    def update_compromised_nodes(self, nodes):
+        return [0,0,0,0]
+
+    def update_found_hosts(self, hosts):
+        obs = self.current_observation["known_hosts"].copy()
+        if hosts is not None:
+            for host in hosts:
+                if(host["ip"] in constants.ADDRESS_MAP.keys()):
+                    index = constants.ADDRESS_MAP[host["ip"]]
+                    obs[index] = 1 if host["state"] == "up" else 0
+                
+        return obs
+    
+    def update_tools(self):
+
+        obs = self.current_observation["known_tools"].copy()
+        obs_hosts = self.current_observation["known_hosts"].copy()
+        obs_credentials = self.current_observation["known_credentials"].copy()
+        obs_compromised = self.current_observation["compromised_nodes"].copy()
+
+        brute_force = 1
+        traffic_sniff = 2
+        script_injection = 3
+        login = 4
+        read_info = 5
+        for host in obs_hosts:
+            if obs_hosts[host] == 1:
+                obs[brute_force] = 1
+            if obs_credentials[host] == 1:
+                obs[login] = 1
+                if constants.ADDRESS_LIST[host] == "172.17.100.2":
+                    obs[script_injection] = 1
+                    obs[login] = 1
+
+                elif constants.ADDRESS_LIST[host] == '192.168.100.3':
+                    obs[read_info] = 1
+                    obs[login] = 1
+            
+        return obs
+
+    def calculate_reward(self, observation):
+
+        info_read = 1 if self.stolen_info else 0
+        found_hosts_count =  sum(observation["known_hosts"])
+        found_credentials_count = sum(observation["known_credentials"])
+        found_compromised_count = sum(observation["compromised_nodes"])
+
+        # TODO: add penalties for invalid actions
+        return (2*found_hosts_count + 5*found_credentials_count + 7*found_compromised_count + 20*info_read)
+        
+    def parse_medusa_output(self, output):
+        pattern = r"ACCOUNT FOUND: \[ssh\] Host: (\S+) User: (\S+) Password: (\S+) \[SUCCESS\]"
+        credentials = {}
+        obs = [0,0,0,0]
+        for line in output.splitlines():
+            match = re.search(pattern, line)
+            if match:
+                host, user, password = match.groups()
+                credentials[host] = {"user": user, "password": password}
+        
+        for host in credentials:
+            obs[constants.ADDRESS_MAP[host]] = 1
+            self.credential_store[constants.ADDRESS_MAP[host]]['user'] = credentials[host]['user']
+            self.credential_store[constants.ADDRESS_MAP[host]]['password'] = credentials[host]['password']
+        return obs
+    
 def parse_scan_output(data):
     root = ET.fromstring(data)
     hosts = []
@@ -129,18 +231,10 @@ def parse_scan_output(data):
             hosts.append({"ip": ip, "state": state})
     return hosts
 
-def parse_medusa_output(output):
-    pattern = r"ACCOUNT FOUND: \[ssh\] Host: (\S+) User: (\S+) Password: (\S+) \[SUCCESS\]"
-    credentials = {}
 
-    for line in output.splitlines():
-        match = re.search(pattern, line)
-        if match:
-            host, user, password = match.groups()
-            credentials[host] = {"user": user, "password": password}
-    
-    return credentials
 
 def interact(command):
     result = execute_command(constants.DOCKER_NODES['COZYBEAR'], command)
     return result
+
+    

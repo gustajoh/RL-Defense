@@ -6,7 +6,7 @@ PROJECT_ID = '3317c6f6-5a8f-4a89-a09c-b59cae565e0d'
 # http://192.168.33.7:3080/v2/projects/3317c6f6-5a8f-4a89-a09c-b59cae565e0d/nodes view nodes in case ids change TODO: script for automatically extracting ids
 DOCKER_NODES = {
     "AdminPC": "27b7647b6071",
-    "COZYBEAR": "bbfc0e11fd42",
+    "COZYBEAR": "7908ba5fbddc",
     "IDPS": "05ea4b2441c6",
     "RepoServer": "5ba20cc85042",
     "MgmHost": "2835fe355648",
@@ -39,3 +39,16 @@ NMAP_SCANS = [
     "nmap -A -oX -",
     "nmap -T5 -oX -"
 ]
+
+ADDRESS_MAP = {
+    #MgmHost
+    '192.42.0.10': 0,
+    #RepoServer
+    '172.17.100.2': 1,
+    #AdminPC
+    '192.168.100.2': 2,
+    #Fileshare
+    '192.168.100.3': 3,
+}
+
+ADDRESS_LIST = ['192.42.0.10', '172.17.100.2', '192.168.100.2', '192.168.100.3']

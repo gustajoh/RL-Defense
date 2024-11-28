@@ -15,7 +15,6 @@ def execute_command(node_id, command):
 
         exec_command = f'docker exec -i {node_id} {command}'
         _, stdout, stderr = ssh_client.exec_command(exec_command)
-
         output = stdout.read().decode('utf-8')
         #print("output:", output)
 
