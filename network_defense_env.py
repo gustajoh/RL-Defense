@@ -15,6 +15,7 @@ class NetworkDefenseEnv(gym.Env):
         self.gns3_ids = {}
         self.current_rtype = ""
         self.current_action = ""
+        self.defend_ref = ""
         self.log_file = "training_v2.json"
         self.info_stolen = False
         self.step_counter = 0
@@ -56,7 +57,6 @@ class NetworkDefenseEnv(gym.Env):
         }
 
 
-
 ### STEP FUNCTION ###
     def step(self, action):
         response_type = action[0]
@@ -64,6 +64,62 @@ class NetworkDefenseEnv(gym.Env):
         node = action[2]
         ip = action[3]
 
+        # Detection
+        if response_type == 0:
+            self.current_rtype = "Detection"
+
+            if specific_action == 0:
+                print("Add snort rule")
+                self.current_action = "Added snort rule"
+                self.defend_ref = "D3FEND: D3-NTA Network Traffic Analysis"
+                self.add_snort_rule()
+
+            if specific_action == 1:
+                print("Idle")
+                self.current_action = "Idle"
+                self.defend_ref = "N/A Idle"
+                self.idle()
+
+        # Mitigation
+        elif response_type == 1:
+            self.current_rtype = "Mitigation"
+            if specific_action == 0:
+                print("Blacklisting IP")
+                self.defend_ref = "D3FEND: D3-NTF Network Traffic Filtering"
+
+                if self.current_observation["src_ips"][ip] and 0 <= ip < len(constants.REVERSE_IP_ADDRESS_LIST):
+                    print("Valid IP Seen in alerts!")
+                    target_ip = constants.REVERSE_IP_ADDRESS_LIST[ip]
+                    self.current_action = f"Blacklisted IP - {target_ip}"
+                    self.blacklist_ip(target_ip)
+                else:
+                    self.current_action = "Blacklisted IP - Invalid"
+                    print("Invalid IP!")
+
+            elif specific_action == 1:
+                print(f"Limiting user on {constants.DEFENSE_NODES[node]}")
+                self.current_action = "Limited user privileges"
+                self.defend_ref = "D3FEND: D3-UAP User Account Permissions"
+
+                self.limit_user(node)
+
+        # Containment
+        elif response_type == 2:
+            self.current_rtype = "Containment"
+            if specific_action == 0:
+                print(f"Turning off {constants.DEFENSE_NODES[node]}")
+                self.current_action = f"Turned off {constants.DEFENSE_NODES[node]}"
+                self.defend_ref = "D3FEND: D3-HS Host Shutdown"
+
+                self.turn_off_node(node)
+
+            elif specific_action == 1:
+                print(f"Isolating {constants.DEFENSE_NODES[node]}")
+                self.current_action = f"Isolated {constants.DEFENSE_NODES[node]}"
+                self.defend_ref = "D3FEND: D3-NI Network Isolation"
+
+                self.isolate_node(node)
+        
         # Attacker's turn
         if self.attack_index < len(self.attack_chain):
             print(f"Executing attack step {self.attack_index + 1}")
@@ -77,53 +133,6 @@ class NetworkDefenseEnv(gym.Env):
                 else: 
                     print("Attack step failed at: ", self.attack_index, self.attack_chain[self.attack_index].__name__)
 
-        # Detection
-        if response_type == 0:
-            self.current_rtype = "Detection"
-
-            if specific_action == 0:
-                print("Add snort rule")
-                self.current_action = "Added snort rule"
-                self.add_snort_rule()
-
-            if specific_action == 1:
-                print("Idle")
-                self.current_action = "Idle"
-                self.idle()
-
-        # Mitigation
-        elif response_type == 1:
-            self.current_rtype = "Mitigation"
-            if specific_action == 0:
-                print("Blacklisting IP")
-                if self.current_observation["src_ips"][ip] and 0 <= ip < len(constants.REVERSE_IP_ADDRESS_LIST):
-                    print("Valid IP Seen in alerts!")
-                    target_ip = constants.REVERSE_IP_ADDRESS_LIST[ip]
-                    self.current_action = f"Blacklisted IP - {target_ip}"
-
-                    self.blacklist_ip(target_ip)
-                else:
-                    self.current_action = "Blacklisted IP - Invalid"
-                    print("Invalid IP!")
-
-            elif specific_action == 1:
-                print(f"Limiting user on {constants.DEFENSE_NODES[node]}")
-                self.current_action = "Limited user privileges"
-                self.limit_user(node)
-
-        # Containment
-        elif response_type == 2:
-            self.current_rtype = "Containment"
-            if specific_action == 0:
-                print(f"Turning off {constants.DEFENSE_NODES[node]}")
-                self.current_action = f"Turned off {constants.DEFENSE_NODES[node]}"
-                self.turn_off_node(node)
-
-            elif specific_action == 1:
-                print(f"Isolating {constants.DEFENSE_NODES[node]}")
-                self.current_action = f"Isolated {constants.DEFENSE_NODES[node]}"
-                self.isolate_node(node)
-        
         # Evaluating state
         print("Evaluating state..")
 
@@ -155,6 +164,7 @@ class NetworkDefenseEnv(gym.Env):
             step=self.step_counter,
             observation=text_logs,
             response_type=self.current_rtype,
+            d3fend_reference=self.defend_ref,
             action_taken=self.current_action,
             reward=reward
         )
@@ -178,6 +188,7 @@ class NetworkDefenseEnv(gym.Env):
         self.info_stolen = False
         self.current_rtype = ""
         self.current_action = ""
+        self.defend_ref = ""
 
         restart_sim()
         self.start_all()
