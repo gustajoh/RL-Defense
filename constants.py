@@ -1,54 +1,73 @@
 GNS3_VM = '192.168.33.7'
 VM_USERNAME = 'gns3'
 VM_PASSWORD = 'gns3'
-PROJECT_ID = '3317c6f6-5a8f-4a89-a09c-b59cae565e0d'
+PROJECT_ID = '4f9334d2-40d7-402f-b768-ea6e46bcab59'
 
-# http://192.168.33.7:3080/v2/projects/3317c6f6-5a8f-4a89-a09c-b59cae565e0d/nodes view nodes in case ids change TODO: script for automatically extracting ids
+# http://192.168.33.7:3080/v2/projects/31d6b89d-08f6-4eba-8d7d-0ed7a19579b4/nodes view nodes in case ids change TODO: script for automatically extracting ids
 DOCKER_NODES = {
-    "AdminPC": "27b7647b6071",
-    "COZYBEAR": "7908ba5fbddc",
-    "IDPS": "05ea4b2441c6",
-    "RepoServer": "5ba20cc85042",
-    "MgmHost": "2835fe355648",
-    "Fileshare": "5aaad19d7dca"
+    "AdminPC": "1a93b4113186",
+    "COZYBEAR": "2aad6fbd7fa6",
+    "IDPS": "51298fb32cfa", 
+    "RepoServer": "52bc3f6857af",
+    "MgmHost": "e6111d7557a1",
+    "Fileshare": "5e56b4235ac1"
 }
 
-USERS = ['james', 'alica', 'bob']
+GNS3_NODES = {
+    "AdminPC": "52285f4f-b1e8-415a-9b0b-4777b3a69a9d",
+    "MgmHost": "dffb290d-5f24-4410-b434-e187db112f51",
+    "Fileshare": "4165ae64-eb21-47c1-9b87-d57cd721fa66",
+    "RepoServer": "ea423931-3d64-45f2-9103-5bf599e5137c",
+    "IDPS": "46e1a433-884d-4900-84e8-ef2a8b35343e"
+}
+
+IP_ADDRESS_MAP = {
+    "10.0.0.2": 0,
+    "172.17.100.2": 1,
+    "192.168.100.2": 2,
+    "192.168.100.3": 3,
+    "192.42.0.10": 4,
+}
+
+REVERSE_IP_ADDRESS_LIST = ["10.0.0.2", "172.17.100.2", "192.168.100.2", "192.168.100.3", "192.42.0.10"]
+
+ALERT_MAP = {
+    "ICMP PING NMAP": 0,
+    "SNMP request tcp": 1,
+    "SNMP AgentX/tcp request": 2,
+    "SCAN nmap XMAS": 3,
+    "SSH Brute-Force Detected": 4,
+    "Malicious Script Detected - Unauthorized User Creation": 5
+}
+
 # Console commands
 BRUTE_FORCE_ATTACK = 'medusa -h %s -U users.txt -P passwords.txt -M ssh | grep FOUND'
 
-# Todo: update with more appropriate rules for snort and shorewall
-SNORT_RULES = ['alert icmp any any -> $HOME_NET any (msg:"ICMP Ping"; sid:1000001; rev:1;)',
-               'alert tcp any any -> $HOME_NET 80 (msg:"HTTP Traffic"; sid:1000002; rev:1;)',
-               'alert udp any any -> $HOME_NET 53 (msg:"DNS Query"; sid:1000003; rev:1;)']
-
-SHOREWALL_RULES = [
-    "ACCEPT   net      fw     tcp       80",
-    "ACCEPT   net      fw     tcp       443",
-    "DROP     net:192.168.1.100     all",
-    "ACCEPT   lan      fw     tcp       22",
-    "DROP     net:192.168.2.0/24    all",
-    "ACCEPT   net      fw     icmp"
-]
-
-# Scans with increasing levels of aggressiveness
-NMAP_SCANS = [
-    "nmap -sn -oX -",
-    "nmap -sS -oX -",
-    "nmap -sS -sV -O -oX -",
-    "nmap -A -oX -",
-    "nmap -T5 -oX -"
-]
+NMAP_SCAN = "nmap -sS -sV -O -oX -"
 
 ADDRESS_MAP = {
-    #MgmHost
-    '192.42.0.10': 0,
     #RepoServer
-    '172.17.100.2': 1,
+    '172.17.100.2': 0,
     #AdminPC
-    '192.168.100.2': 2,
+    '192.168.100.2': 1,
     #Fileshare
-    '192.168.100.3': 3,
+    '192.168.100.3': 2,
 }
 
-ADDRESS_LIST = ['192.42.0.10', '172.17.100.2', '192.168.100.2', '192.168.100.3']
+
+
+
+REVERSE_ADDRESS_MAP = ['172.17.100.2', '192.168.100.2', '192.168.100.3']
+
+HOST_MAP = ["RepoServer", "AdminPC", "Fileshare", "COZYBEAR"]
+
+DEFENSE_NODES = ["RepoServer", "AdminPC", "Fileshare"]
+
+DEFENSE_NODES_MAP = {
+    "RepoServer": 0, 
+    "AdminPC": 1, 
+    "Fileshare": 2,
+    "IDPS": 3
+    }
+
+ADDRESS_LIST = ['172.17.100.2', '192.168.100.2', '192.168.100.3']

