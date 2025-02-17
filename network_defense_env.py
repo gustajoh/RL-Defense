@@ -123,11 +123,6 @@ class NetworkDefenseEnv(gym.Env):
                 print(f"Isolating {constants.DEFENSE_NODES[node]}")
                 self.current_action = f"Isolated {constants.DEFENSE_NODES[node]}"
                 self.isolate_node(node)
-
-            # elif specific_action == 2:
-            #     self.current_action = f"Restarted {constants.DEFENSE_NODES[node]}"
-            #     print(f"Restarting {constants.DEFENSE_NODES[node]}")
-            #     self.restart_node(node)
         
         # Evaluating state
         print("Evaluating state..")
@@ -332,59 +327,22 @@ class NetworkDefenseEnv(gym.Env):
     def _log_to_json(self, **kwargs):
         def convert(obj):
             if isinstance(obj, np.ndarray):
-                return obj.tolist()  # Convert ndarray to list
+                return obj.tolist()
             return obj
 
         converted_kwargs = {key: convert(value) for key, value in kwargs.items()}
 
         try:
-            # Read existing logs if file exists and is valid JSON
             with open(self.log_file, "r") as f:
                 logs = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
-            logs = []  # Initialize an empty list if file doesn't exist or is invalid
+            logs = []
 
         logs.append(converted_kwargs)  # Append new log entry
 
         # Overwrite file with updated logs (formatted JSON)
         with open(self.log_file, "w") as f:
-            json.dump(logs, f, indent=4)  # Pretty-print JSON with indentation
-
-
-
-
-        # def convert(obj):
-        #     if isinstance(obj, np.ndarray):
-        #         return obj.tolist()  # Convert ndarray to list
-        #     return obj
-    
-        # # Apply conversion to all values in kwargs
-        # converted_kwargs = {key: convert(value) for key, value in kwargs.items()}
-        
-        # # Write to file
-        # with open(self.log_file, "a") as f:
-        #     f.write(json.dumps(converted_kwargs) + "\n")
-        # # with open(self.log_file, "a") as f:
-        # #     f.write(json.dumps(kwargs) + "\n")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            json.dump(logs, f, indent=4)
 
 
 def start_snort(docker_ids):
@@ -420,7 +378,6 @@ def traffic_scan(docker_ids):
     print("Scanning traffic")
     command = "timeout 2 tcpdump -i any -v"
     result = command_repo_server(command, docker_ids)
-    print("RES HERE: ", result)
     return parse_traffic(result)
 
 # Injecting malicious script
@@ -430,7 +387,6 @@ def inject_script(docker_ids):
     command = f'sh -c "echo \\"{payload}\\" >> /var/www/html/reposerver/install.sh"'
 
     result = command_elevated_repo_server(command, docker_ids)
-    print(result)
     return "[SUCCESS]" in result
 
 # Downloading sensitive info
@@ -441,7 +397,6 @@ def get_info(docker_ids):
     command = f'echo -n "{encoded_cmd}" | xxd -r -p | bash'
 
     result = command_admin_pc(command, docker_ids)
-    print(result)
     return "[SUCCESS]" in result
 
 # Reading sensitive info
@@ -449,7 +404,6 @@ def read_info(docker_ids):
     print("reading info")
     command = "cat financial_report.txt"
     result = command_admin_pc(command, docker_ids)
-    print(result)
     return "This is a confidential report" in result
 
 
@@ -516,14 +470,12 @@ def collect_node_ids():
     gns3_dict = {}
     docker_dict = {}
     for node in response.json():
-        #print(node['name'], node['node_id'])
         gns3_dict[node['name']] = node['node_id']
 
         if 'docker' in node['node_type']:
             name = node['name']
             id = node ['properties']['container_id'][:12]
             docker_dict[name] = id
-            # print(name, id)
     return gns3_dict, docker_dict
 
 def check_traffic(docker_ids):
@@ -533,10 +485,10 @@ def check_traffic(docker_ids):
         res = execute_command(docker_ids["COZYBEAR"], command)
         #print(res.split("\n"))
         if res != '' and '64 bytes from 192.42.0.10' in res.split("\n")[-2]:
-            print("Isup")
+            print("Ready")
             done = True
         else:
-            print("Not up")
+            print("Not ready")
             done = False
 
 def start_traffic(docker_ids):
