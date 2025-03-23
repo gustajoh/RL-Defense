@@ -1,7 +1,7 @@
 GNS3_VM = '192.168.33.7'
 VM_USERNAME = 'gns3'
 VM_PASSWORD = 'gns3'
-PROJECT_ID = '4f9334d2-40d7-402f-b768-ea6e46bcab59'
+PROJECT_ID = 'b816acbc-4962-40c4-a48a-bf80fa1aa2f9'
 
 # http://192.168.33.7:3080/v2/projects/31d6b89d-08f6-4eba-8d7d-0ed7a19579b4/nodes view nodes in case ids change TODO: script for automatically extracting ids
 DOCKER_NODES = {
@@ -54,14 +54,11 @@ ADDRESS_MAP = {
     '192.168.100.3': 2,
 }
 
-
-
-
 REVERSE_ADDRESS_MAP = ['172.17.100.2', '192.168.100.2', '192.168.100.3']
 
 HOST_MAP = ["RepoServer", "AdminPC", "Fileshare", "COZYBEAR"]
 
-DEFENSE_NODES = ["RepoServer", "AdminPC", "Fileshare"]
+DEFENSE_NODES = ["RepoServer", "AdminPC", "Fileshare", "IDPS"]
 
 DEFENSE_NODES_MAP = {
     "RepoServer": 0, 
@@ -71,3 +68,10 @@ DEFENSE_NODES_MAP = {
     }
 
 ADDRESS_LIST = ['172.17.100.2', '192.168.100.2', '192.168.100.3']
+
+CRITICAL_INDEX_MAP = {
+    "RepoServer": 4.2,
+    "AdminPC": 1.6,
+    "Fileshare": 2.8,
+    "IDPS": 5,
+}
