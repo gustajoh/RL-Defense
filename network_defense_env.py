@@ -16,9 +16,16 @@ class NetworkDefenseEnv(gym.Env):
         self.current_rtype = ""
         self.current_action = ""
         self.defend_ref = ""
-        self.log_file = "training_v2.json"
+        self.log_file = "test.json"
+        self.current_episode = 0
+
+
         self.info_stolen = False
         self.step_counter = 0
+        self.failed_attack_counter = 0
+        self.attack_index = 0
+        self.isolated_nodes = set()
+        self.timesteps_since_last_alert = 0
 
 
         self.attack_chain = [
@@ -30,30 +37,27 @@ class NetworkDefenseEnv(gym.Env):
             read_info
         ]
 
-        self.attack_index = 0
 
-        # 4 categories (detection, mitigation, containment, idle)
-        types = 4
+        # 4 categories (detection, mitigation, containment)
+        types = 3
         commands = 2
         nodes = 3
         src_ips = 5
 
-        self.action_space = spaces.MultiDiscrete(
-            [types, commands, nodes, src_ips])
+        self.action_space = spaces.MultiDiscrete([types, commands, nodes, src_ips])
 
-        #"snort_alerts": spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.int32),
         self.observation_space = spaces.Dict({
-            "snort_alerts": spaces.Box(low=0, high=np.inf, shape=(5, 4), dtype=np.int8),    # 5 latest alerts: <src_ip, dst_ip, alert_msg, priority>
-            "alert_history": spaces.Box(low=0, high=np.inf, shape=(50, 4), dtype=np.int8),  # History of at most 50 alerts
+            "snort_alerts": spaces.Box(low=-1, high=np.inf, shape=(5, 4), dtype=np.int8),    # 5 latest alerts: <src_ip, dst_ip, alert_msg, priority>
             "src_ips": spaces.MultiBinary(5),
-            "host_statuses": spaces.MultiBinary(4)
+            "host_statuses": spaces.Box(low=0, high=2, shape=(4,), dtype=np.int8),
+            "alert_summary": spaces.Box(low=0, high=np.inf, shape=(5,), dtype=np.int8)
             })
 
         self.current_observation = {
-            "snort_alerts": np.zeros((5, 4), dtype=np.int8),
-            "alert_history": np.zeros((50, 4), dtype=np.int8),            
+            "snort_alerts": np.full((5, 4), -1, dtype=np.int8),
+            "src_ips": np.zeros(5, dtype=np.int8),
             "host_statuses": np.ones(4, dtype=np.int8),
-            "src_ips": np.zeros(5, dtype=np.int8)
+            "alert_summary": np.zeros(5, dtype=np.int8)
         }
 
 
@@ -119,7 +123,8 @@ class NetworkDefenseEnv(gym.Env):
                 self.defend_ref = "D3FEND: D3-NI Network Isolation"
 
                 self.isolate_node(node)
-        
+                self.isolated_nodes.add(constants.DEFENSE_NODES[node])
+
         # Attacker's turn
         if self.attack_index < len(self.attack_chain):
             print(f"Executing attack step {self.attack_index + 1}")
@@ -127,11 +132,13 @@ class NetworkDefenseEnv(gym.Env):
                 self.info_stolen = self.attack_chain[self.attack_index](self.docker_ids)
                 if not self.info_stolen:
                     print("Attack step failed at: ", self.attack_index, self.attack_chain[self.attack_index].__name__)
+                    self.failed_attack_counter += 1
             else:
                 if self.attack_chain[self.attack_index](self.docker_ids):
                     self.attack_index += 1
                 else: 
                     print("Attack step failed at: ", self.attack_index, self.attack_chain[self.attack_index].__name__)
+                    self.failed_attack_counter += 1
 
         # Evaluating state
         print("Evaluating state..")
@@ -141,26 +148,20 @@ class NetworkDefenseEnv(gym.Env):
         
         self.current_observation["snort_alerts"] = np_logs
         
-        new_logs = np_logs.shape[0]
-        max_logs = self.current_observation["alert_history"].shape[0]
-        
-        if new_logs < max_logs:
-            # shift old logs up and append the most recent ones
-            self.current_observation["alert_history"][:-new_logs] = self.current_observation["alert_history"][new_logs:]
-        
-        self.current_observation["alert_history"][-new_logs:] = np_logs
         self.current_observation["host_statuses"] = node_statuses
         self.current_observation["src_ips"] = src_ips
 
         self.clear_logs(self.docker_ids)
 
-        reward = float(20 - 2*(4 - np.sum(self.current_observation["host_statuses"])) - 2*self.attack_index - 20*self.info_stolen)
+        reward = self.calculate_reward(self.current_observation["host_statuses"], self.attack_index, self.info_stolen)
         print("Reward:", reward)
         
-        terminated = self.info_stolen or self.attack_index == len(self.attack_chain) or self.step_counter > 10
+        terminated = self.info_stolen or self.attack_index == len(self.attack_chain) or self.failed_attack_counter >= 3 or self.step_counter > 10
         truncated = False
-
+        
+        print("OBSERVATION LOGS", self.current_observation["snort_alerts"])
         self._log_to_json(
+            episode=self.current_episode,
             step=self.step_counter,
             observation=text_logs,
             response_type=self.current_rtype,
@@ -177,10 +178,10 @@ class NetworkDefenseEnv(gym.Env):
     def reset(self, seed=None, options=None):
         print("Resetting..")
         self.current_observation = {
-            "snort_alerts": np.zeros((5, 4), dtype=np.int8),
-            "alert_history": np.zeros((50, 4), dtype=np.int8),            
+            "snort_alerts": np.full((5, 4),- 1, dtype=np.int8),
             "host_statuses": np.ones(4, dtype=np.int8),
-            "src_ips": np.zeros(5, dtype=np.int8)
+            "src_ips": np.zeros(5, dtype=np.int8),
+            "alert_summary": np.zeros(5, dtype=np.int8)
         }
 
         self.attack_index = 0
@@ -189,7 +190,11 @@ class NetworkDefenseEnv(gym.Env):
         self.current_rtype = ""
         self.current_action = ""
         self.defend_ref = ""
-
+        self.failed_attack_counter = 0
+        self.timesteps_since_last_alert = 0
+        self.isolated_nodes = set()
+        self.current_episode += 1
+        
         restart_sim()
         self.start_all()
         self.gns3_ids, self.docker_ids = collect_node_ids()
@@ -282,14 +287,19 @@ class NetworkDefenseEnv(gym.Env):
 
         matches = [match.groupdict() for match in alert_pattern.finditer(output_data)]
 
-        np_logs = np.zeros((5, 4), dtype=np.int8)
+
+        np_logs = np.full((5, 4), -1, dtype=np.int8)
         text_logs = []
 
         src_ips = self.current_observation["src_ips"]
 
+        i = 0
         # Store last 5 alerts
-        for i, match in enumerate(matches[-5:]):
-            if match['classification'] not in ('Misc activity','Potentially Bad Traffic'):
+        for idx, match in enumerate(matches):
+            if i >= 5:
+                break
+            if match['classification'] not in ('Misc activity'):
+                print(match['classification'], match['alert_msg'])
                 text_logs.append({
                     "timestamp": match["timestamp"],
                     "alert_msg": match['alert_msg'],
@@ -305,15 +315,36 @@ class NetworkDefenseEnv(gym.Env):
 
                 priority = int(match['priority'])
                 np_logs[i] = [src_ip, dst_ip, alert_msg, priority]
+                
+                i+= 1
 
                 if 0 <= src_ip < len(src_ips):
                     src_ips[src_ip] = 1
 
+        # Reset timestep since last alert check
+        alerts = [alert for alert in np_logs if alert[0] != -1]
+        
+        if alerts:
+            print(alerts)
+            print("Reset step")
+            self.timesteps_since_last_alert = 0
+
+        count_priority_1 = sum(1 for alert in alerts if int(alert[3]) == 1)
+        count_priority_2 = sum(1 for alert in alerts if int(alert[3]) == 2)
+        count_priority_3 = sum(1 for alert in alerts if int(alert[3]) >= 3)
+        total_alerts = len(alerts)
+        
+        # Update alert summary in observation space
+        self.current_observation["alert_summary"][0] += count_priority_1
+        self.current_observation["alert_summary"][1] += count_priority_2
+        self.current_observation["alert_summary"][2] += count_priority_3
+        self.current_observation["alert_summary"][3] += total_alerts
+        self.current_observation["alert_summary"][4] = self.timesteps_since_last_alert
+
         return text_logs, np_logs, src_ips
 
     def retrieve_node_status(self):
-        URL = ('http://192.168.33.7:3080/v2/projects/'
-           f'{constants.PROJECT_ID}/nodes')
+        URL = f'http://192.168.33.7:3080/v2/projects/{constants.PROJECT_ID}/nodes'
 
         response = requests.get( URL, headers={'Content-Type': 'application/x-www-form-urlencoded', })
         if response.status_code == 200:
@@ -325,10 +356,32 @@ class NetworkDefenseEnv(gym.Env):
         for node in data:
             if node['name'] in constants.DEFENSE_NODES_MAP.keys():
                 index = constants.DEFENSE_NODES_MAP[node['name']]
-                hosts[index] = node['status'] == 'started'
+                if node['status'] == 'stopped':
+                    hosts[index] = 2
+                elif node['name'] in self.isolated_nodes:
+                    hosts[index] = 1
+                elif node['status'] == 'started':
+                    hosts[index] = 0
 
         return hosts
     
+    def calculate_reward(self, statuses, attack_index, info_stolen):
+        multiplier = 0
+        impact = 0
+        for (i,status) in enumerate(statuses):
+            print(i,status)
+            node = constants.DEFENSE_NODES[i]
+            print(node)
+            if status == 0:
+                multiplier = 0
+            if status == 1:
+                multiplier = 1
+            if status == 2:
+                multiplier = 1.5
+            impact += multiplier*constants.CRITICAL_INDEX_MAP[node]
+        
+        return round(float(20 - impact - 2*attack_index), 4) if not info_stolen else 0
+
     def clear_logs(self, dockers):
         command = '''sh -c 'echo "" > /var/log/snort/alert' '''
         execute_command(dockers["IDPS"], command)
@@ -456,7 +509,6 @@ def parse_nmap(data):
         status = host.find("status").get("state")
         if status == "up":
             return True
-        
     return False
 
 def parse_medusa_output(data):
@@ -494,7 +546,6 @@ def check_traffic(docker_ids):
     done = False
     while not done:
         res = execute_command(docker_ids["COZYBEAR"], command)
-        #print(res.split("\n"))
         if res != '' and '64 bytes from 192.42.0.10' in res.split("\n")[-2]:
             print("Ready")
             done = True
