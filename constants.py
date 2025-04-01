@@ -27,9 +27,11 @@ IP_ADDRESS_MAP = {
     "192.168.100.2": 2,
     "192.168.100.3": 3,
     "192.42.0.10": 4,
+    "192.168.201.1": 5,
+    "192.168.200.1": 6
 }
 
-REVERSE_IP_ADDRESS_LIST = ["10.0.0.2", "172.17.100.2", "192.168.100.2", "192.168.100.3", "192.42.0.10"]
+REVERSE_IP_ADDRESS_LIST = ["10.0.0.2", "172.17.100.2", "192.168.100.2", "192.168.100.3", "192.42.0.10", "192.168.201.1"]
 
 ALERT_MAP = {
     "ICMP PING NMAP": 0,
@@ -37,7 +39,12 @@ ALERT_MAP = {
     "SNMP AgentX/tcp request": 2,
     "SCAN nmap XMAS": 3,
     "SSH Brute-Force Detected": 4,
-    "Malicious Script Detected - Unauthorized User Creation": 5
+    "Malicious Script Detected - Unauthorized User Creation": 5,
+    "ICMP PING": 6,
+    "ICMP Echo Reply": 7,
+    "ICMP PING undefined code": 8,
+    "ICMP Echo Reply undefined code": 9,
+    "ICMP Destination Unreachable Host Unreachable": 10,
 }
 
 # Console commands
