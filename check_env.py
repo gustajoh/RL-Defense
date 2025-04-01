@@ -1,5 +1,3 @@
-from constants import *
-from network_attack_env import *
 from network_defense_env import *
 from stable_baselines3.common.env_checker import check_env
 
