@@ -16,7 +16,7 @@ class NetworkDefenseEnv(gym.Env):
         self.current_rtype = ""
         self.current_action = ""
         self.defend_ref = ""
-        self.log_file = "test.json"
+        self.log_file = "PPO_v2.json"
         self.current_episode = 0
 
 
@@ -160,6 +160,7 @@ class NetworkDefenseEnv(gym.Env):
         truncated = False
         
         print("OBSERVATION LOGS", self.current_observation["snort_alerts"])
+        print("SUMMARY", self.current_observation["alert_summary"])
         self._log_to_json(
             episode=self.current_episode,
             step=self.step_counter,
@@ -170,7 +171,7 @@ class NetworkDefenseEnv(gym.Env):
             reward=reward
         )
 
-        print("Step done\n", terminated)
+        print("Step done")
         self.step_counter += 1
 
         return self.current_observation.copy(), reward, terminated, truncated, {}
@@ -298,7 +299,7 @@ class NetworkDefenseEnv(gym.Env):
         for idx, match in enumerate(matches):
             if i >= 5:
                 break
-            if match['classification'] not in ('Misc activity'):
+            if match['alert_msg'] not in ('ICMP Destination Unreachable Host Unreachable'):
                 print(match['classification'], match['alert_msg'])
                 text_logs.append({
                     "timestamp": match["timestamp"],
@@ -325,9 +326,9 @@ class NetworkDefenseEnv(gym.Env):
         alerts = [alert for alert in np_logs if alert[0] != -1]
         
         if alerts:
-            print(alerts)
-            print("Reset step")
             self.timesteps_since_last_alert = 0
+        else: 
+            self.timesteps_since_last_alert += 1
 
         count_priority_1 = sum(1 for alert in alerts if int(alert[3]) == 1)
         count_priority_2 = sum(1 for alert in alerts if int(alert[3]) == 2)
@@ -369,9 +370,7 @@ class NetworkDefenseEnv(gym.Env):
         multiplier = 0
         impact = 0
         for (i,status) in enumerate(statuses):
-            print(i,status)
             node = constants.DEFENSE_NODES[i]
-            print(node)
             if status == 0:
                 multiplier = 0
             if status == 1:
@@ -387,6 +386,7 @@ class NetworkDefenseEnv(gym.Env):
         execute_command(dockers["IDPS"], command)
         test = 'cat /var/log/snort/alert'
         res = execute_command(dockers["IDPS"], test)
+        print("SNORT ALERTS WIPED?:", res)
     
     def _log_to_json(self, **kwargs):
         def convert(obj):

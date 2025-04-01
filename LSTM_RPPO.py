@@ -1,4 +1,4 @@
-from network_defense_env import *
+from environment_files.network_defense_env import *
 from stable_baselines3.common.callbacks import CheckpointCallback
 from sb3_contrib import RecurrentPPO
 
@@ -28,4 +28,4 @@ except Exception as e:
     print(f"Unexpected error: {e} Saving model")
     model.save("Unknown_checkpoint")
 
-model.save("RPPO_Model")
+model.save("/models/RPPO_Model")
