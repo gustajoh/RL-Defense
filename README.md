@@ -12,3 +12,6 @@ The network topology is simulated using [Graphical Network Simulator-3](https://
 The topology can be imported with the included .gns3 file.
 It is suggested to run GNS3 in the web gui. 
 Included Dockerfiles should be placed and built **on the GNS3 VM**.
+
+### RL Environment
+The reinforcement learning environment integrates and communicates with the network topology through SSH. In constants.py you need to replace current values with your own GNS3 address and project ID.
