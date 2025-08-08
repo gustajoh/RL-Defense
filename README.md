@@ -14,4 +14,4 @@ It is suggested to run GNS3 in the web gui.
 Included Dockerfiles should be placed and built **on the GNS3 VM**.
 
 ### RL Environment
-The reinforcement learning environment integrates and communicates with the network topology through SSH. In constants.py you need to replace current values with your own GNS3 address and project ID.
+The reinforcement learning environment integrates and communicates with the network topology through SSH. In [constants.py](/environment_files/constants.py) you need to replace current values "GNS3_VM" and "PROJECT_ID" with your own GNS3 VM address and project ID.
